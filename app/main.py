@@ -108,9 +108,12 @@ def preprocess(es: Elasticsearch, model: SentenceTransformer) -> None:
     """
     df = pd.read_csv(CSV).loc[:99]
     df.fillna("None", inplace=True)
-    df["DescriptionVector"] = df["Description"].apply(
-        lambda x: model.encode(x)
-    )
+    try:
+        df["DescriptionVector"] = df["Description"].apply(
+            lambda x: model.encode(x)
+        )
+    except TypeError as e:
+        print("Something went wrong with encoding", repr(e))
     records = df.to_dict("records")
     for record in records:
         try:
@@ -156,6 +159,44 @@ def search(
     return results
 
 
+def submit(es: Elasticsearch, model: SentenceTransformer, query: str) -> None:
+    """
+    Submit a query to Elasticsearch and display results.
+
+    Parameters
+    ----------
+    es : Elasticsearch
+        Elasticsearch client.
+    model : SentenceTransformer
+        SentenceTransformer model.
+    query : str
+        Input query.
+
+    """
+    results = search(es, model, query)
+    st.subheader("Search Results")
+    for result in results:
+        with st.container():
+            if "_source" in result:
+                try:
+                    st.header(f"{result['_source']['ProductName']}")
+                except KeyError as e:
+                    print(
+                        "Something went wrong writing the header",
+                        repr(e),
+                    )
+                try:
+                    st.write(
+                        f"Description: {result['_source']['Description']}"
+                    )
+                except KeyError as e:
+                    print(
+                        "Something went wrong writing the description",
+                        repr(e),
+                    )
+                st.divider()
+
+
 def main() -> None:
     """Create a Steamlit app that allows to perform semantic search."""
     shutil.copy(CERT_DIR + "ca/ca.crt", CERT_DIR + "ca.crt")
@@ -165,36 +206,15 @@ def main() -> None:
     preprocess(es, model)
 
     st.title("Semantic Search with ES and BERT")
-    # Input: User enters search query
-    search_query = st.text_input("Enter your search query")
-    # Button: User triggers the search
-    if st.button("Search"):
-        if search_query:
-            # Perform the search and get results
-            results = search(es, model, search_query)
-            # Display search results
-            st.subheader("Search Results")
-            for result in results:
-                with st.container():
-                    if "_source" in result:
-                        try:
-                            st.header(f"{result['_source']['ProductName']}")
-                        except KeyError as e:
-                            print(
-                                "Something went wrong writing the header",
-                                repr(e),
-                            )
-                        try:
-                            st.write(
-                                "Description:"
-                                f" {result['_source']['Description']}"
-                            )
-                        except KeyError as e:
-                            print(
-                                "Something went wrong writing the description",
-                                repr(e),
-                            )
-                        st.divider()
+    form = st.form(key="form")
+    query = form.text_input(
+        label="Enter your search query:",
+        value="",
+        key="query",
+        placeholder="Enter your search query:",
+    )
+    if form.form_submit_button(label="Submit"):
+        submit(es, model, query)
 
 
 if __name__ == "__main__":
